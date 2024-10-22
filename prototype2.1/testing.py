@@ -6,3 +6,5 @@ regions = extreme_temp_df['country'].unique().tolist()
 
 print("Regions with temperatures above 40°C:")
 print(regions)
+
+# some other stuff
