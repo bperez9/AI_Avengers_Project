@@ -1,0 +1,95 @@
+# main.py
+
+import json
+import pandas as pd
+from Tools.landcover_tool import LandCoverTool
+from groq import Groq  # Replace with your actual client import
+from Configurations.api import API_KEY
+
+# Constants
+MODEL = 'llama3-groq-70b-8192-tool-use-preview'  # Replace with your actual model name
+client = Groq(api_key=API_KEY)  # Replace with your actual API key
+
+# Load your sea level and GMSL data into DataFrames
+land_cover_data = pd.read_csv('Datasets/Land_Cover_Accounts.csv')
+
+# Initialize the tool with the sea level and GMSL data
+land_cover_tool = LandCoverTool(land_cover_data)
+
+# Define the tools list for the LLM
+tools = [
+    {
+        "type": "function",
+        "function": land_cover_tool.get_function_definition()
+    }
+]
+
+# Map function names to functions
+available_functions = {
+    "analyze_land_cover_data": land_cover_tool.run_impl,
+}
+
+# Function to handle the LLM conversation
+def run_conversation():
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a land cover dataset assistant. Talk to the user like you are ChatGPT. "
+                "You must always call the appropriate function to retrieve land cover data insights "
+                "using the provided dataset."
+            )
+        },
+    ]
+
+    while True:
+        user_input = input("User: ")
+        if user_input.lower() in ['exit', 'quit']:
+            print("Exiting the conversation.")
+            break
+
+        messages.append({"role": "user", "content": user_input})
+
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=4096
+        )
+
+        response_message = response.choices[0].message
+        messages.append(response_message)
+
+        tool_calls = response_message.tool_calls
+
+        if tool_calls:
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                function_to_call = available_functions[function_name]
+                function_args = json.loads(tool_call.function.arguments)
+
+                function_response = function_to_call(**function_args)
+
+                tool_response_message = {
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": json.dumps(function_response),
+                }
+                messages.append(tool_response_message)
+
+            second_response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages
+            )
+            second_response_message = second_response.choices[0].message
+            messages.append(second_response_message)
+
+            print("Assistant:", second_response_message.content)
+        else:
+            print("Assistant:", response_message.content)
+
+if __name__ == "__main__":
+    print("Start chatting with the sea level assistant (type 'exit' or 'quit' to stop):")
+    run_conversation()
